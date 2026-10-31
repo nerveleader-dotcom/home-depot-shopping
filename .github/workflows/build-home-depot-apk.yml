@@ -26,11 +26,21 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Update Android target
+      - name: Fix Android compatibility
         run: |
           sed -i -E 's/targetSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/targetSdk 35/g' app/build.gradle
-          echo "Updated target SDK:"
-          grep -n targetSdk app/build.gradle
+
+      - name: Fix unresponsive pop-up buttons
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/src/main/assets/index.html")
+          s = p.read_text()
+          assert "function close()" in s, "Expected close function not found"
+          s = s.replace("close()", "closeModal()")
+          p.write_text(s)
+          print("Fixed pop-up close function")
+          PY
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
