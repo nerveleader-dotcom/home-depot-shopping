@@ -7,12 +7,13 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -32,19 +33,24 @@ jobs:
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ ! -d "$ANDROID_HOME" ]; then
+            echo "Android SDK not found"
+            exit 1
+          fi
           ls "$ANDROID_HOME"
 
-      - name: Extract Shopping Companion Login Fix
+      - name: Extract Shopping Companion v0.3.0
         run: |
           mkdir -p android-project
-          unzip -o shopping_companion_login_navigation_fix.zip -d android-project
+          unzip -o shopping_companion_cart_diagnostics_fix.zip -d android-project
 
       - name: Find Android project
         id: project
+        shell: bash
         run: |
           BUILD_FILE=$(find android-project -type f \
-            \( -name build.gradle -o -name build.gradle.kts \) \
-            | grep -v '/app/' | head -n 1)
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            | head -n 1)
 
           if [ -z "$BUILD_FILE" ]; then
             echo "Android Gradle project not found"
@@ -60,21 +66,26 @@ jobs:
         run: |
           gradle --no-daemon assembleDebug
 
-      - name: Locate APK
+      - name: Collect APK
+        shell: bash
         run: |
           mkdir -p apk-output
+
           find android-project -type f \
             -name "*debug.apk" \
             -exec cp {} apk-output/ \;
 
           if [ -z "$(ls -A apk-output)" ]; then
-            echo "No APK was generated"
+            echo "No debug APK was generated"
             exit 1
           fi
+
+          ls -lh apk-output/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-Login-Fix-APK
+          name: Shopping-Companion-v0.3.0-APK
           path: apk-output/*.apk
           if-no-files-found: error
+          retention-days: 30
