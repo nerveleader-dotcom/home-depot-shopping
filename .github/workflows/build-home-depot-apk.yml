@@ -32,13 +32,12 @@ jobs:
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           ls "$ANDROID_HOME"
 
-      - name: Extract Shopping Companion project
+      - name: Extract Android 35 project
         run: |
           mkdir -p android-project
-          unzip -o shopping_companion_home_depot_cart_update.zip -d android-project
+          unzip -o shopping_companion_android35_update.zip -d android-project
 
       - name: Find Android project
         id: project
@@ -76,6 +75,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-Updated-APK
+          name: Shopping-Companion-Android35-APK
           path: apk-output/*.apk
           if-no-files-found: error
+          
