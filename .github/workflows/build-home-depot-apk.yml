@@ -1,109 +1,49 @@
+
 name: Build Home Depot APK
+
 on:
   workflow_dispatch:
   push:
-    paths:
-      - '.github/workflows/build-home-depot-apk.yml'
-      - 'home_depot_android_android_build.zip'
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Extract Android project
-        run: unzip -o home_depot_android_android_build.zip -d .
-
-      - uses: actions/setup-java@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Apply Android fixes
+      - name: Extract updated Shopping Companion
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          mkdir -p android-project
+          unzip -o shopping_companion_home_depot_cart_update.zip -d android-project
 
-          gradle = Path("app/build.gradle")
-          g = gradle.read_text()
-          g, n = re.subn(r"targetSdk\s+\d+", "targetSdk 35", g)
-          assert n == 1, "targetSdk not found"
-          gradle.write_text(g)
-
-          html = Path("app/src/main/assets/index.html")
-          s = html.read_text()
-          if "function close()" in s:
-              s = s.replace("close()", "closeModal()")
-          html.write_text(s)
-
-          java = Path("app/src/main/java/com/shoppingcompanion/homedepot/MainActivity.java")
-          j = java.read_text()
-          j = j.replace("import android.webkit.WebChromeClient;", "import android.webkit.WebChromeClient;\nimport android.webkit.ValueCallback;")
-
-          j = j.replace("private WebView view;", """private WebView view;
-              private ValueCallback<Uri[]> fileCallback;
-              private static final int FILE_REQUEST = 1001;""")
-
-          old = "view.setWebChromeClient(new WebChromeClient());"
-          new = """view.setWebChromeClient(new WebChromeClient() {
-                  @Override
-                  public boolean onShowFileChooser(WebView webView,
-                          ValueCallback<Uri[]> callback,
-                          FileChooserParams params) {
-                      if (fileCallback != null) {
-                          fileCallback.onReceiveValue(null);
-                      }
-                      fileCallback = callback;
-                      try {
-                          Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                          intent.setType("*/*");
-                          intent.addCategory(Intent.CATEGORY_OPENABLE);
-                          startActivityForResult(
-                              Intent.createChooser(intent, "Choose shopping list"),
-                              FILE_REQUEST);
-                          return true;
-                      } catch (Exception e) {
-                          fileCallback = null;
-                          return false;
-                      }
-                  }
-              });"""
-          assert old in j, "WebChromeClient location not found"
-          j = j.replace(old, new)
-
-          marker = "    @Override public void onBackPressed()"
-          handler = """    @Override
-              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-                  super.onActivityResult(requestCode, resultCode, data);
-                  if (requestCode == FILE_REQUEST && fileCallback != null) {
-                      Uri[] result = null;
-                      if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                          result = new Uri[]{data.getData()};
-                      }
-                      fileCallback.onReceiveValue(result);
-                      fileCallback = null;
-                  }
-              }
-          """
-          assert marker in j, "Back button method not found"
-          j = j.replace(marker, handler + marker)
-          java.write_text(j)
-          print("Android file picker and compatibility fixes applied")
-          PY
-
-      - name: Build debug APK
+      - name: Build Android APK
+        working-directory: android-project
         run: gradle --no-daemon assembleDebug
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          name: home-depot-shopping-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Shopping-Companion-Updated-APK
+          path: android-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
