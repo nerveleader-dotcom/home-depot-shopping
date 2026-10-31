@@ -39,10 +39,10 @@ jobs:
           fi
           ls "$ANDROID_HOME"
 
-      - name: Extract Shopping Companion v0.3.0
+      - name: Extract corrected Shopping Companion
         run: |
           mkdir -p android-project
-          unzip -o shopping_companion_cart_diagnostics_fix.zip -d android-project
+          unzip -o shopping_companion_cart_diagnostics_compile_fix.zip -d android-project
 
       - name: Find Android project
         id: project
@@ -85,7 +85,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-v0.3.0-APK
+          name: Shopping-Companion-Compile-Fix-APK
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 30
