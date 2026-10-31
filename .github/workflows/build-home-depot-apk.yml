@@ -56,7 +56,7 @@ jobs:
           PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Apply Shopping Companion fixes
+      - name: Apply fixes and product images
         shell: bash
         env:
           PROJECT_DIR: ${{ steps.project.outputs.dir }}
@@ -67,94 +67,220 @@ jobs:
 
           project = Path(os.environ["PROJECT_DIR"])
 
-          java = project / "app/src/main/java/com/shoppingcompanion/homedepot/MainActivity.java"
+          def replace_once(source, old, new, label):
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"{label}: expected one match, found {count}"
+                  )
+              return source.replace(old, new, 1)
+
+          java = project / (
+              "app/src/main/java/com/shoppingcompanion/"
+              "homedepot/MainActivity.java"
+          )
           source = java.read_text()
 
-          old_message = '.setMessage("Select ONLY the products in your Home Depot cart, not suggestions. You will confirm each quantity next. Your saved list is unchanged.")'
+          # Keep the manual-review checklist fix.
+          source = replace_once(
+              source,
+              '.setMessage("Select ONLY the products in your Home Depot cart, not suggestions. You will confirm each quantity next. Your saved list is unchanged.")',
+              '',
+              "Checklist message"
+          )
 
-          if source.count(old_message) != 1:
-              raise SystemExit("Checklist patch target missing")
-
-          source = source.replace(old_message, "", 1)
-          source = source.replace(
+          source = replace_once(
+              source,
               '.setTitle("Select actual cart products")',
               '.setTitle("Select ONLY actual cart products")',
-              1
+              "Checklist title"
           )
+
+          # Extract images only from recognized product cards.
+          image_function = r'''
+                      const safePicture=u=>{
+                        if(!u)return '';
+                        try{
+                          const link=new URL(String(u).trim(),location.href);
+                          const host=link.hostname.toLowerCase();
+                          const good=
+                            host==='homedepot.com'||
+                            host.endsWith('.homedepot.com')||
+                            host==='thdstatic.com'||
+                            host.endsWith('.thdstatic.com')||
+                            host==='homedepot-static.com'||
+                            host.endsWith('.homedepot-static.com');
+                          return link.protocol==='https:'&&good?link.href:'';
+                        }catch(e){return '';}
+                      };
+
+                      const imageFor=(r,a,name)=>{
+                        const pics=[
+                          ...(a?[...a.querySelectorAll('img')]:[]),
+                          ...r.querySelectorAll('img')
+                        ];
+                        let best='',score=-1;
+
+                        for(const img of new Set(pics)){
+                          const srcset=
+                            img.getAttribute('srcset')||
+                            img.getAttribute('data-srcset')||'';
+
+                          const sources=[
+                            img.currentSrc,
+                            img.getAttribute('src'),
+                            img.getAttribute('data-src'),
+                            img.getAttribute('data-original'),
+                            img.getAttribute('data-lazy-src'),
+                            srcset?
+                              srcset.split(',')[0].trim().split(/\\s+/)[0]:
+                              ''
+                          ];
+
+                          const url=sources.map(safePicture).find(Boolean)||'';
+                          if(!url)continue;
+
+                          const alt=norm(
+                            img.getAttribute('alt')||''
+                          ).toLowerCase();
+
+                          if(
+                            /logo|icon|badge|sprite|placeholder|spinner|avatar|warranty/i.test(url)||
+                            /logo|icon|badge|avatar/i.test(alt)
+                          )continue;
+
+                          let points=1;
+                          if(a&&a.contains(img))points+=8;
+                          if(alt.length>8)points+=2;
+
+                          if(name&&alt&&(
+                            alt.includes(name.slice(0,15).toLowerCase())||
+                            name.toLowerCase().includes(alt.slice(0,15))
+                          ))points+=12;
+
+                          if(
+                            url.includes('thdstatic')||
+                            url.includes('homedepot-static')
+                          )points+=2;
+
+                          if(points>score){
+                            best=url;
+                            score=points;
+                          }
+                        }
+                        return best;
+                      };
+          '''
+
+          source = replace_once(
+              source,
+              "            const parsed=rows.map(r=>{",
+              image_function + "            const parsed=rows.map(r=>{",
+              "Image extractor"
+          )
+
+          source = replace_once(
+              source,
+              "              return {name,quantity,price,url:a?.href||'',row:r};",
+              "              return {name,quantity,price,image:imageFor(r,a,name),url:a?.href||'',row:r};",
+              "Product image extraction"
+          )
+
+          # Carry images into manual-review choices.
+          source = replace_once(
+              source,
+              "reviewMap.set(key,{name:x.name,quantity:x.quantity,price:x.price,url:x.url});",
+              "reviewMap.set(key,{name:x.name,quantity:x.quantity,price:x.price,image:x.image,url:x.url});",
+              "Manual review images"
+          )
+
+          # Carry images into automatic import results.
+          source = replace_once(
+              source,
+              "const items=[...dedup.values()].map(({name,quantity,price,url})=>({name,quantity,price,url}));",
+              "const items=[...dedup.values()].map(({name,quantity,price,url,image})=>({name,quantity,price,url,image}));",
+              "Automatic import images"
+          )
+
+          # Keep the image when the user enters quantities.
+          source = replace_once(
+              source,
+              '                c.put("url",item.optString("url"));',
+              '                c.put("url",item.optString("url"));\n'
+              '                c.put("image",item.optString("image",""));',
+              "Confirmed product image"
+          )
+
           java.write_text(source)
 
+          # Keep popup and quantity display fixes.
           html = project / "app/src/main/assets/index.html"
           content = html.read_text()
 
-          if content.count("function close()") != 1:
-              raise SystemExit("Popup patch target missing")
+          content = replace_once(
+              content,
+              "function close()",
+              "function dismissModal()",
+              "Popup closing function"
+          )
 
           content = content.replace(
               "close()",
               "dismissModal()"
           )
 
-          old_done = '${i.qty} collected</span>'
-          old_button = '${i.qty}</button><button class="secondary" onclick="change('
-
-          if content.count(old_done) != 1:
-              raise SystemExit("Completed quantity target missing")
-
-          if content.count(old_button) != 1:
-              raise SystemExit("Quantity button target missing")
-
-          content = content.replace(
-              old_done,
+          content = replace_once(
+              content,
+              '${i.qty} collected</span>',
               '${i.qty} of ${i.planned} collected</span>',
-              1
+              "Completed quantity display"
           )
 
-          content = content.replace(
-              old_button,
+          content = replace_once(
+              content,
+              '${i.qty}</button><button class="secondary" onclick="change(',
               '${i.qty} of ${i.planned} collected</button><button class="secondary" onclick="change(',
-              1
+              "Active quantity display"
           )
 
-          content = content.replace(
+          content = replace_once(
+              content,
               '.qty{min-width:48px;',
               '.qty{min-width:128px;',
-              1
+              "Quantity button width"
+          )
+
+          # Save extracted thumbnail URL with imported products.
+          content = replace_once(
+              content,
+              "image:'',url:String(x.url||'')",
+              "image:/^https:\\/\\//i.test(String(x.image||''))?String(x.image):'',url:String(x.url||'')",
+              "Imported image storage"
           )
 
           html.write_text(content)
-          print("Popup and quantity display fixes applied")
-          PY
 
-      - name: Update version to 0.3.5
-        shell: bash
-        env:
-          PROJECT_DIR: ${{ steps.project.outputs.dir }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
+          # Set release version.
+          build = project / "app/build.gradle"
+          settings = build.read_text()
 
-          build = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle"
-          content = build.read_text()
-
-          if "versionCode 5" not in content:
-              raise SystemExit("Expected base version missing")
-
-          if "versionName '0.3.2'" not in content:
-              raise SystemExit("Expected version name missing")
-
-          content = content.replace(
+          settings = replace_once(
+              settings,
               "versionCode 5",
-              "versionCode 8",
-              1
-          )
-          content = content.replace(
-              "versionName '0.3.2'",
-              "versionName '0.3.5'",
-              1
+              "versionCode 9",
+              "Version code"
           )
 
-          build.write_text(content)
+          settings = replace_once(
+              settings,
+              "versionName '0.3.2'",
+              "versionName '0.3.6'",
+              "Version name"
+          )
+
+          build.write_text(settings)
+
+          print("Shopping Companion v0.3.6 patches applied")
           PY
 
       - name: Build debug APK
@@ -172,14 +298,16 @@ jobs:
             -exec cp {} apk-output/ \;
 
           if [ -z "$(ls -A apk-output)" ]; then
-            echo "No APK generated"
+            echo "No debug APK generated"
             exit 1
           fi
+
+          ls -lh apk-output/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-v0.3.5-APK
+          name: Shopping-Companion-v0.3.6-APK
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 30
