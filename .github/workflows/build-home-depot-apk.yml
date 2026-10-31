@@ -33,16 +33,18 @@ jobs:
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
+
           if [ ! -d "$ANDROID_HOME" ]; then
             echo "Android SDK not found"
             exit 1
           fi
+
           ls "$ANDROID_HOME"
 
-      - name: Extract Shopping Companion v0.3.1
+      - name: Extract Shopping Companion v0.3.2
         run: |
           mkdir -p android-project
-          unzip -o shopping_companion_cart_parser_v4.zip -d android-project
+          unzip -o shopping_companion_cart_parser_v5.zip -d android-project
 
       - name: Find Android project
         id: project
@@ -58,6 +60,7 @@ jobs:
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
+
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Project directory: $PROJECT_DIR"
 
@@ -85,8 +88,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-v0.3.1-APK
+          name: Shopping-Companion-v0.3.2-APK
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 30
-          
