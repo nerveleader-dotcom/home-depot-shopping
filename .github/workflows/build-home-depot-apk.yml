@@ -33,11 +33,7 @@ jobs:
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          if [ ! -d "$ANDROID_HOME" ]; then
-            echo "Android SDK not found"
-            exit 1
-          fi
-          ls "$ANDROID_HOME"
+          test -d "$ANDROID_HOME"
 
       - name: Extract Shopping Companion
         run: |
@@ -53,15 +49,14 @@ jobs:
             | head -n 1)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "Android Gradle project not found"
+            echo "Android project not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Project directory: $PROJECT_DIR"
 
-      - name: Fix product checklist and popup buttons
+      - name: Apply Shopping Companion fixes
         shell: bash
         env:
           PROJECT_DIR: ${{ steps.project.outputs.dir }}
@@ -72,15 +67,13 @@ jobs:
 
           project = Path(os.environ["PROJECT_DIR"])
 
-          # Fix hidden product checklist.
           java = project / "app/src/main/java/com/shoppingcompanion/homedepot/MainActivity.java"
-
           source = java.read_text()
 
           old_message = '.setMessage("Select ONLY the products in your Home Depot cart, not suggestions. You will confirm each quantity next. Your saved list is unchanged.")'
 
           if source.count(old_message) != 1:
-              raise SystemExit("Product checklist patch target not found")
+              raise SystemExit("Checklist patch target missing")
 
           source = source.replace(old_message, "", 1)
           source = source.replace(
@@ -88,35 +81,51 @@ jobs:
               '.setTitle("Select ONLY actual cart products")',
               1
           )
-
           java.write_text(source)
-          print("Product checklist fixed")
 
-          # Fix HTML popup Close and X buttons.
           html = project / "app/src/main/assets/index.html"
-
           content = html.read_text()
 
           if content.count("function close()") != 1:
-              raise SystemExit("Popup close function not found")
+              raise SystemExit("Popup patch target missing")
 
           content = content.replace(
               "close()",
               "dismissModal()"
           )
 
-          if "function close()" in content:
-              raise SystemExit("Old close function still exists")
+          old_done = '${i.qty} collected</span>'
+          old_button = '${i.qty}</button><button class="secondary" onclick="change('
 
-          if content.count("function dismissModal()") != 1:
-              raise SystemExit("New popup function missing")
+          if content.count(old_done) != 1:
+              raise SystemExit("Completed quantity target missing")
+
+          if content.count(old_button) != 1:
+              raise SystemExit("Quantity button target missing")
+
+          content = content.replace(
+              old_done,
+              '${i.qty} of ${i.planned} collected</span>',
+              1
+          )
+
+          content = content.replace(
+              old_button,
+              '${i.qty} of ${i.planned} collected</button><button class="secondary" onclick="change(',
+              1
+          )
+
+          content = content.replace(
+              '.qty{min-width:48px;',
+              '.qty{min-width:128px;',
+              1
+          )
 
           html.write_text(content)
-
-          print("Popup buttons fixed")
+          print("Popup and quantity display fixes applied")
           PY
 
-      - name: Update app version to 0.3.4
+      - name: Update version to 0.3.5
         shell: bash
         env:
           PROJECT_DIR: ${{ steps.project.outputs.dir }}
@@ -126,27 +135,26 @@ jobs:
           from pathlib import Path
 
           build = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle"
-          text = build.read_text()
+          content = build.read_text()
 
-          if "versionCode 5" not in text:
-              raise SystemExit("Expected versionCode 5 not found")
+          if "versionCode 5" not in content:
+              raise SystemExit("Expected base version missing")
 
-          if "versionName '0.3.2'" not in text:
-              raise SystemExit("Expected versionName 0.3.2 not found")
+          if "versionName '0.3.2'" not in content:
+              raise SystemExit("Expected version name missing")
 
-          text = text.replace(
+          content = content.replace(
               "versionCode 5",
-              "versionCode 7",
+              "versionCode 8",
               1
           )
-          text = text.replace(
+          content = content.replace(
               "versionName '0.3.2'",
-              "versionName '0.3.4'",
+              "versionName '0.3.5'",
               1
           )
 
-          build.write_text(text)
-          print("Version updated to 0.3.4")
+          build.write_text(content)
           PY
 
       - name: Build debug APK
@@ -164,16 +172,14 @@ jobs:
             -exec cp {} apk-output/ \;
 
           if [ -z "$(ls -A apk-output)" ]; then
-            echo "No debug APK generated"
+            echo "No APK generated"
             exit 1
           fi
-
-          ls -lh apk-output/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-v0.3.4-APK
+          name: Shopping-Companion-v0.3.5-APK
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 30
