@@ -33,12 +33,16 @@ jobs:
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
+          if [ ! -d "$ANDROID_HOME" ]; then
+            echo "Android SDK not found"
+            exit 1
+          fi
           ls "$ANDROID_HOME"
 
-      - name: Extract Shopping Companion
+      - name: Extract Shopping Companion v0.3.1
         run: |
           mkdir -p android-project
-          unzip -o shopping_companion_cart_diagnostics_compile_fix.zip -d android-project
+          unzip -o shopping_companion_cart_parser_v4.zip -d android-project
 
       - name: Find Android project
         id: project
@@ -49,61 +53,13 @@ jobs:
             | head -n 1)
 
           if [ -z "$BUILD_FILE" ]; then
-            echo "Android project not found"
+            echo "Android Gradle project not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$BUILD_FILE")
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Project: $PROJECT_DIR"
-
-      - name: Enable Java 17 compilation
-        shell: bash
-        env:
-          PROJECT_DIR: ${{ steps.project.outputs.dir }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          project = Path(os.environ["PROJECT_DIR"])
-          build = project / "app" / "build.gradle"
-
-          if not build.exists():
-              raise SystemExit("app/build.gradle not found")
-
-          content = build.read_text()
-
-          if "compileOptions" not in content:
-              options = """
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          """
-              start = content.find("android {")
-              if start == -1:
-                  raise SystemExit("android block not found")
-
-              pos = start + len("android {")
-              content = content[:pos] + "\n" + options + content[pos:]
-
-          else:
-              import re
-              content = re.sub(
-                  r'sourceCompatibility\s+\S+',
-                  'sourceCompatibility JavaVersion.VERSION_17',
-                  content
-              )
-              content = re.sub(
-                  r'targetCompatibility\s+\S+',
-                  'targetCompatibility JavaVersion.VERSION_17',
-                  content
-              )
-
-          build.write_text(content)
-          print(content)
-          PY
+          echo "Project directory: $PROJECT_DIR"
 
       - name: Build debug APK
         working-directory: ${{ steps.project.outputs.dir }}
@@ -120,7 +76,7 @@ jobs:
             -exec cp {} apk-output/ \;
 
           if [ -z "$(ls -A apk-output)" ]; then
-            echo "No APK generated"
+            echo "No debug APK was generated"
             exit 1
           fi
 
@@ -129,7 +85,8 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Shopping-Companion-Java17-APK
+          name: Shopping-Companion-v0.3.1-APK
           path: apk-output/*.apk
           if-no-files-found: error
           retention-days: 30
+          
